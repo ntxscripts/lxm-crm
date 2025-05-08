@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <!-- Quick Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-car"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Total Vehicles</h3>
+                <p class="stat-number" id="stat-total-vehicles">0</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-tools"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Pending Maintenance</h3>
+                <p class="stat-number" id="stat-pending-maintenance">0</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-dollar-sign"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Total Cost</h3>
+                <p class="stat-number" id="stat-total-cost">-</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-calendar-check"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Upcoming Services</h3>
+                <p class="stat-number" id="stat-upcoming-services">0</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="dashboard-section">
+        <h2>Recent Activity</h2>
+        <div class="activity-list" id="recent-activity-list">
+            <!-- Dynamic recent activity will be inserted here by JS -->
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="dashboard-section">
+        <h2>Quick Actions</h2>
+        <div class="quick-actions">
+            <button class="action-button">
+                <i class="fas fa-plus"></i>
+                Add Vehicle
+            </button>
+            <button class="action-button">
+                <i class="fas fa-calendar-plus"></i>
+                Schedule Service
+            </button>
+            <button class="action-button">
+                <i class="fas fa-file-invoice"></i>
+                Generate Report
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function renderRecentActivity(list) {
+    const container = document.getElementById('recent-activity-list');
+    container.innerHTML = '';
+    if (!list.length) {
+        container.innerHTML = '<div class="activity-item"><div class="activity-details"><h4>No recent activity</h4></div></div>';
+        return;
+    }
+    list.forEach(item => {
+        let icon = 'fa-bolt';
+        if (item.type === 'Vehicle') icon = 'fa-car';
+        if (item.type === 'Maintenance') icon = 'fa-tools';
+        if (item.type === 'Purchase') icon = 'fa-shopping-cart';
+        if (item.type === 'Part') icon = 'fa-cogs';
+        container.innerHTML += `
+            <div class="activity-item">
+                <div class="activity-icon"><i class="fas ${icon}"></i></div>
+                <div class="activity-details">
+                    <h4>${item.type} ${item.action}</h4>
+                    <p>${item.desc}</p>
+                </div>
+            </div>
+        `;
+    });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/dashboard')
+        .then(res => res.json())
+        .then(stats => {
+            document.getElementById('stat-total-vehicles').textContent = stats.total_vehicles;
+            document.getElementById('stat-pending-maintenance').textContent = stats.pending_maintenance;
+            document.getElementById('stat-total-cost').textContent = stats.total_cost === '' ? '-' : `$${stats.total_cost.toLocaleString()}`;
+            document.getElementById('stat-upcoming-services').textContent = stats.upcoming_services;
+            renderRecentActivity(stats.recent_activity || []);
+        });
+});
+</script>
+{% endblock %}

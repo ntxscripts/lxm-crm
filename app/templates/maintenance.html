@@ -1,0 +1,400 @@
+{% extends 'base.html' %}
+
+{% block title %}Maintenance Fee Audit - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="maintenance-header">
+    <h1>Maintenance Fee Audit</h1>
+    <button class="add-entry-btn" id="add-maintenance-btn"><i class="fas fa-plus"></i> Add New Entry</button>
+</div>
+<div class="maintenance-filters" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <input type="text" id="maintenance-search" placeholder="Search maintenance..." style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;min-width:200px;">
+    <select id="filter-vehicle" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-company" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-type" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-year" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+</div>
+<div class="maintenance-actions" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <button id="export-maintenance-csv" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;"><i class="fas fa-file-csv"></i> Export CSV</button>
+    <button id="print-maintenance-table" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#64748b;color:#fff;border:none;cursor:pointer;"><i class="fas fa-print"></i> Print</button>
+</div>
+<div id="maintenance-message" class="message" style="display:none;"></div>
+<div class="maintenance-table-wrapper">
+    <table class="maintenance-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="date">Date <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_name">Vehicle <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_company">Company <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_license_plate">License Plate <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="type">Type <span class="sort-indicator"></span></th>
+                <th>Description</th>
+                <th class="sortable" data-sort="cost">Cost <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="total">Total <span class="sort-indicator"></span></th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="maintenance-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+<!-- Modal for Add/Edit Maintenance -->
+<div id="maintenance-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-maintenance-modal">&times;</span>
+        <h2 id="maintenance-modal-title">Add Maintenance Log</h2>
+        <form id="maintenance-form">
+            <input type="hidden" id="maintenance-id">
+            <div class="form-group">
+                <label for="maintenance-date">Date</label>
+                <input type="date" id="maintenance-date" required>
+            </div>
+            <div class="form-group">
+                <label for="maintenance-vehicle">Vehicle</label>
+                <select id="maintenance-vehicle" required></select>
+            </div>
+            <div class="form-group">
+                <label for="maintenance-type">Type</label>
+                <select id="maintenance-type" required>
+                    <option value="Service">Service</option>
+                    <option value="Repair">Repair</option>
+                    <option value="Inspection">Inspection</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="maintenance-description">Description</label>
+                <input type="text" id="maintenance-description">
+            </div>
+            <div class="form-group">
+                <label for="maintenance-cost">Cost</label>
+                <input type="text" id="maintenance-cost">
+            </div>
+            <div class="form-group">
+                <label for="maintenance-total">Total</label>
+                <input type="text" id="maintenance-total">
+            </div>
+            <div class="form-group">
+                <label for="maintenance-notes">Notes</label>
+                <textarea id="maintenance-notes"></textarea>
+            </div>
+            <div id="maintenance-form-error" class="form-error" style="display:none;"></div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allMaintenance = [];
+let currentSort = { key: 'date', dir: 'desc' };
+
+function showMaintenanceMessage(msg, success=true) {
+    const el = document.getElementById('maintenance-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+function openMaintenanceModal(edit=false, log={}) {
+    document.getElementById('maintenance-modal-title').textContent = edit ? 'Edit Maintenance Log' : 'Add Maintenance Log';
+    document.getElementById('maintenance-id').value = log.id || '';
+    document.getElementById('maintenance-date').value = log.date || '';
+    document.getElementById('maintenance-type').value = log.type || 'Service';
+    document.getElementById('maintenance-description').value = log.description || '';
+    document.getElementById('maintenance-cost').value = log.cost || '';
+    document.getElementById('maintenance-total').value = log.total || '';
+    document.getElementById('maintenance-notes').value = log.notes || '';
+    document.getElementById('maintenance-modal').style.display = 'block';
+    document.getElementById('maintenance-form-error').style.display = 'none';
+    // Populate vehicle dropdown
+    fetch('/api/vehicles').then(res => res.json()).then(vehicles => {
+        const select = document.getElementById('maintenance-vehicle');
+        select.innerHTML = '';
+        vehicles.forEach(v => {
+            const option = document.createElement('option');
+            option.value = v.id;
+            option.textContent = v.name;
+            if (log.vehicle_id == v.id) option.selected = true;
+            select.appendChild(option);
+        });
+        if (!edit && vehicles.length) select.value = vehicles[0].id;
+    });
+}
+function closeMaintenanceModal() {
+    document.getElementById('maintenance-modal').style.display = 'none';
+}
+function renderMaintenance(logs) {
+    const tbody = document.getElementById('maintenance-table-body');
+    tbody.innerHTML = '';
+    logs.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${log.date}</td>
+            <td>${log.vehicle_name || ''}</td>
+            <td>${log.vehicle_company || ''}</td>
+            <td>${log.vehicle_license_plate || ''}</td>
+            <td><span class="badge badge-${log.type ? log.type.toLowerCase() : ''}">${log.type || ''}</span></td>
+            <td>${log.description || ''}</td>
+            <td>${log.cost || ''}</td>
+            <td>${log.total || ''}</td>
+            <td>${log.notes || ''}</td>
+            <td class="actions">
+                <a href="#" class="edit-maintenance" data-id="${log.id}"><i class="fas fa-pen"></i></a>
+                <a href="#" class="delete-maintenance" data-id="${log.id}"><i class="fas fa-trash"></i></a>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+function filterAndSortMaintenance() {
+    let filtered = allMaintenance;
+    const search = document.getElementById('maintenance-search').value.toLowerCase();
+    const vehicle = document.getElementById('filter-vehicle').value;
+    const company = document.getElementById('filter-company').value;
+    const type = document.getElementById('filter-type').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(l =>
+            (l.date || '').toLowerCase().includes(search) ||
+            (l.vehicle_name || '').toLowerCase().includes(search) ||
+            (l.vehicle_company || '').toLowerCase().includes(search) ||
+            (l.vehicle_license_plate || '').toLowerCase().includes(search) ||
+            (l.type || '').toLowerCase().includes(search) ||
+            (l.description || '').toLowerCase().includes(search) ||
+            (l.cost || '').toLowerCase().includes(search) ||
+            (l.total || '').toLowerCase().includes(search) ||
+            (l.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (vehicle) filtered = filtered.filter(l => String(l.vehicle_id) === vehicle);
+    if (company) filtered = filtered.filter(l => l.vehicle_company === company);
+    if (type) filtered = filtered.filter(l => l.type === type);
+    if (year) filtered = filtered.filter(l => (l.date || '').startsWith(year));
+    // Sort
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    renderMaintenance(filtered);
+    updateSortIndicators();
+}
+function updateSortIndicators() {
+    document.querySelectorAll('.maintenance-table th.sortable').forEach(th => {
+        const span = th.querySelector('.sort-indicator');
+        if (th.dataset.sort === currentSort.key) {
+            span.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        } else {
+            span.textContent = '';
+        }
+    });
+}
+function fetchMaintenanceLogs() {
+    fetch('/api/maintenance')
+        .then(res => res.json())
+        .then(data => {
+            allMaintenance = data;
+            // Populate filters
+            fetch('/api/vehicles').then(res => res.json()).then(vehiclesData => {
+                const companies = Array.from(new Set(vehiclesData.map(v => v.company).filter(Boolean)));
+                const vehicles = Array.from(new Set(data.map(l => ({ id: l.vehicle_id, name: l.vehicle_name })).filter(v => v.id && v.name)));
+                const types = Array.from(new Set(data.map(l => l.type).filter(Boolean)));
+                const years = Array.from(new Set(data.map(l => (l.date || '').slice(0,4)).filter(Boolean)));
+                const vehicleSelect = document.getElementById('filter-vehicle');
+                const companySelect = document.getElementById('filter-company');
+                const typeSelect = document.getElementById('filter-type');
+                const yearSelect = document.getElementById('filter-year');
+                vehicleSelect.innerHTML = '<option value="">All Vehicles</option>' + vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+                companySelect.innerHTML = '<option value="">All Companies</option>' + companies.map(c => `<option value="${c}">${c}</option>`).join('');
+                typeSelect.innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${t}">${t}</option>`).join('');
+                yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+                filterAndSortMaintenance();
+            });
+        });
+}
+function exportMaintenanceToCSV() {
+    let rows = [["Date","Vehicle","Company","License Plate","Type","Description","Cost","Total","Notes"]];
+    let filtered = allMaintenance;
+    const search = document.getElementById('maintenance-search').value.toLowerCase();
+    const vehicle = document.getElementById('filter-vehicle').value;
+    const company = document.getElementById('filter-company').value;
+    const type = document.getElementById('filter-type').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(l =>
+            (l.date || '').toLowerCase().includes(search) ||
+            (l.vehicle_name || '').toLowerCase().includes(search) ||
+            (l.vehicle_company || '').toLowerCase().includes(search) ||
+            (l.vehicle_license_plate || '').toLowerCase().includes(search) ||
+            (l.type || '').toLowerCase().includes(search) ||
+            (l.description || '').toLowerCase().includes(search) ||
+            (l.cost || '').toLowerCase().includes(search) ||
+            (l.total || '').toLowerCase().includes(search) ||
+            (l.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (vehicle) filtered = filtered.filter(l => String(l.vehicle_id) === vehicle);
+    if (company) filtered = filtered.filter(l => l.vehicle_company === company);
+    if (type) filtered = filtered.filter(l => l.type === type);
+    if (year) filtered = filtered.filter(l => (l.date || '').startsWith(year));
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    filtered.forEach(l => {
+        rows.push([
+            l.date || '',
+            l.vehicle_name || '',
+            l.vehicle_company || '',
+            l.vehicle_license_plate || '',
+            l.type || '',
+            l.description || '',
+            l.cost || '',
+            l.total || '',
+            l.notes || ''
+        ]);
+    });
+    let csvContent = rows.map(e => e.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+    let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    let link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'maintenance.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+function printMaintenanceTable() {
+    let printContents = document.querySelector('.maintenance-table-wrapper').innerHTML;
+    let win = window.open('', '', 'height=700,width=900');
+    win.document.write('<html><head><title>Print Maintenance</title>');
+    win.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">');
+    win.document.write('<style>body{font-family:sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}th{background:#f3f4f6;}</style>');
+    win.document.write('</head><body>');
+    win.document.write('<h2>Maintenance Logs</h2>');
+    win.document.write(printContents);
+    win.document.write('</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetchMaintenanceLogs();
+    document.getElementById('add-maintenance-btn').onclick = () => openMaintenanceModal(false);
+    document.getElementById('close-maintenance-modal').onclick = closeMaintenanceModal;
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('maintenance-modal')) closeMaintenanceModal();
+    };
+    document.getElementById('maintenance-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('maintenance-id').value;
+        const date = document.getElementById('maintenance-date').value;
+        const type = document.getElementById('maintenance-type').value;
+        const vehicle_id = document.getElementById('maintenance-vehicle').value;
+        const errorEl = document.getElementById('maintenance-form-error');
+        if (!date) {
+            errorEl.textContent = 'Date is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!type) {
+            errorEl.textContent = 'Type is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!vehicle_id) {
+            errorEl.textContent = 'Vehicle is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const data = {
+            date: date,
+            type: type,
+            description: document.getElementById('maintenance-description').value,
+            cost: document.getElementById('maintenance-cost').value,
+            total: document.getElementById('maintenance-total').value,
+            notes: document.getElementById('maintenance-notes').value,
+            vehicle_id: vehicle_id
+        };
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/maintenance/${id}` : '/api/maintenance';
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showMaintenanceMessage('Maintenance log saved!', true);
+                closeMaintenanceModal();
+                fetchMaintenanceLogs();
+            } else {
+                errorEl.textContent = resp.message || 'Error saving log.';
+                errorEl.style.display = 'block';
+            }
+        });
+    };
+    document.getElementById('maintenance-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-maintenance')) {
+            const id = e.target.closest('.edit-maintenance').dataset.id;
+            fetch(`/api/maintenance`)
+                .then(res => res.json())
+                .then(data => {
+                    const log = data.find(l => l.id == id);
+                    openMaintenanceModal(true, log);
+                });
+        }
+        if (e.target.closest('.delete-maintenance')) {
+            const id = e.target.closest('.delete-maintenance').dataset.id;
+            if (confirm('Delete this maintenance log?')) {
+                fetch(`/api/maintenance/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showMaintenanceMessage('Maintenance log deleted!', true);
+                            fetchMaintenanceLogs();
+                        } else {
+                            showMaintenanceMessage('Error deleting log', false);
+                        }
+                    });
+            }
+        }
+    };
+    // Search/filter/sort events
+    document.getElementById('maintenance-search').oninput = filterAndSortMaintenance;
+    document.getElementById('filter-vehicle').onchange = filterAndSortMaintenance;
+    document.getElementById('filter-company').onchange = filterAndSortMaintenance;
+    document.getElementById('filter-type').onchange = filterAndSortMaintenance;
+    document.getElementById('filter-year').onchange = filterAndSortMaintenance;
+    document.querySelectorAll('.maintenance-table th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.onclick = function() {
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            filterAndSortMaintenance();
+        };
+    });
+    document.getElementById('export-maintenance-csv').onclick = exportMaintenanceToCSV;
+    document.getElementById('print-maintenance-table').onclick = printMaintenanceTable;
+});
+</script>
+{% endblock %}

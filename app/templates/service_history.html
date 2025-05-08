@@ -1,0 +1,289 @@
+{% extends 'base.html' %}
+
+{% block title %}Service History - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="service-header">
+    <h1>Service History</h1>
+    <p style="color:#a1a1aa;margin-bottom:1.5rem;">This table shows all Maintenance Log entries where <b>Type</b> is <b>Service</b>.</p>
+    <button class="add-entry-btn" id="add-service-btn"><i class="fas fa-plus"></i> Add Service</button>
+</div>
+<div class="service-filters" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <input type="text" id="service-search" placeholder="Search service history..." style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;min-width:200px;">
+    <select id="filter-vehicle" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-company" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-year" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+</div>
+<div id="service-message" class="message" style="display:none;"></div>
+<div class="service-table-wrapper">
+    <table class="service-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="date">Date <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_name">Vehicle <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_company">Company <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_license_plate">License Plate <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="type">Type <span class="sort-indicator"></span></th>
+                <th>Description</th>
+                <th class="sortable" data-sort="cost">Cost <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="total">Total <span class="sort-indicator"></span></th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="service-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+<!-- Modal for Add/Edit Service -->
+<div id="service-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-service-modal">&times;</span>
+        <h2 id="service-modal-title">Add Service</h2>
+        <form id="service-form">
+            <input type="hidden" id="service-id">
+            <div class="form-group">
+                <label for="service-vehicle">Vehicle</label>
+                <select id="service-vehicle" required></select>
+            </div>
+            <div class="form-group">
+                <label for="service-date">Date</label>
+                <input type="date" id="service-date" required>
+            </div>
+            <div class="form-group">
+                <label for="service-description">Description</label>
+                <input type="text" id="service-description">
+            </div>
+            <div class="form-group">
+                <label for="service-notes">Notes</label>
+                <textarea id="service-notes"></textarea>
+            </div>
+            <div id="service-form-error" class="form-error" style="display:none;"></div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allServices = [];
+let currentSort = { key: 'date', dir: 'desc' };
+
+function showServiceMessage(msg, success=true) {
+    const el = document.getElementById('service-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+function openServiceModal(edit=false, service={}) {
+    document.getElementById('service-modal-title').textContent = edit ? 'Edit Service' : 'Add Service';
+    document.getElementById('service-id').value = service.id || '';
+    document.getElementById('service-date').value = service.date || '';
+    document.getElementById('service-description').value = service.description || '';
+    document.getElementById('service-notes').value = service.notes || '';
+    document.getElementById('service-modal').style.display = 'block';
+    document.getElementById('service-form-error').style.display = 'none';
+    // Populate vehicle dropdown
+    fetch('/api/vehicles').then(res => res.json()).then(vehicles => {
+        const select = document.getElementById('service-vehicle');
+        select.innerHTML = '';
+        vehicles.forEach(v => {
+            const option = document.createElement('option');
+            option.value = v.id;
+            option.textContent = v.name;
+            if (service.vehicle_id == v.id) option.selected = true;
+            select.appendChild(option);
+        });
+        if (!edit && vehicles.length) select.value = vehicles[0].id;
+    });
+}
+function closeServiceModal() {
+    document.getElementById('service-modal').style.display = 'none';
+}
+function renderServices(services) {
+    const tbody = document.getElementById('service-table-body');
+    tbody.innerHTML = '';
+    services.forEach(service => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${service.date || ''}</td>
+            <td>${service.vehicle_name || ''}</td>
+            <td>${service.vehicle_company || ''}</td>
+            <td>${service.vehicle_license_plate || ''}</td>
+            <td><span class="badge badge-${service.type ? service.type.toLowerCase() : ''}">${service.type || ''}</span></td>
+            <td>${service.description || ''}</td>
+            <td>${service.cost || ''}</td>
+            <td>${service.total || ''}</td>
+            <td>${service.notes || ''}</td>
+            <td class="actions">
+                <a href="#" class="edit-service" data-id="${service.id}"><i class="fas fa-pen"></i></a>
+                <a href="#" class="delete-service" data-id="${service.id}"><i class="fas fa-trash"></i></a>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+function filterAndSortServices() {
+    let filtered = allServices;
+    const search = document.getElementById('service-search').value.toLowerCase();
+    const vehicle = document.getElementById('filter-vehicle').value;
+    const company = document.getElementById('filter-company').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(s =>
+            (s.date || '').toLowerCase().includes(search) ||
+            (s.vehicle_name || '').toLowerCase().includes(search) ||
+            (s.vehicle_company || '').toLowerCase().includes(search) ||
+            (s.vehicle_license_plate || '').toLowerCase().includes(search) ||
+            (s.type || '').toLowerCase().includes(search) ||
+            (s.description || '').toLowerCase().includes(search) ||
+            (s.cost || '').toLowerCase().includes(search) ||
+            (s.total || '').toLowerCase().includes(search) ||
+            (s.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (vehicle) filtered = filtered.filter(s => String(s.vehicle_id) === vehicle);
+    if (company) filtered = filtered.filter(s => s.vehicle_company === company);
+    if (year) filtered = filtered.filter(s => (s.date || '').startsWith(year));
+    // Sort
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    renderServices(filtered);
+    updateSortIndicators();
+}
+function updateSortIndicators() {
+    document.querySelectorAll('.service-table th.sortable').forEach(th => {
+        const span = th.querySelector('.sort-indicator');
+        if (th.dataset.sort === currentSort.key) {
+            span.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        } else {
+            span.textContent = '';
+        }
+    });
+}
+function fetchServices() {
+    fetch('/api/service_history')
+        .then(res => res.json())
+        .then(data => {
+            allServices = data;
+            // Populate filters
+            fetch('/api/vehicles').then(res => res.json()).then(vehiclesData => {
+                const companies = Array.from(new Set(vehiclesData.map(v => v.company).filter(Boolean)));
+                const vehicles = Array.from(new Set(data.map(s => ({ id: s.vehicle_id, name: s.vehicle_name })).filter(v => v.id && v.name)));
+                const years = Array.from(new Set(data.map(s => (s.date || '').slice(0,4)).filter(Boolean)));
+                const vehicleSelect = document.getElementById('filter-vehicle');
+                const companySelect = document.getElementById('filter-company');
+                const yearSelect = document.getElementById('filter-year');
+                vehicleSelect.innerHTML = '<option value="">All Vehicles</option>' + vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+                companySelect.innerHTML = '<option value="">All Companies</option>' + companies.map(c => `<option value="${c}">${c}</option>`).join('');
+                yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+                filterAndSortServices();
+            });
+        });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetchServices();
+    document.getElementById('add-service-btn').onclick = () => openServiceModal(false);
+    document.getElementById('close-service-modal').onclick = closeServiceModal;
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('service-modal')) closeServiceModal();
+    };
+    document.getElementById('service-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('service-id').value;
+        const date = document.getElementById('service-date').value;
+        const vehicle_id = document.getElementById('service-vehicle').value;
+        const errorEl = document.getElementById('service-form-error');
+        if (!date) {
+            errorEl.textContent = 'Date is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!vehicle_id) {
+            errorEl.textContent = 'Vehicle is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const data = {
+            vehicle_id: vehicle_id,
+            date: date,
+            description: document.getElementById('service-description').value,
+            notes: document.getElementById('service-notes').value
+        };
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/service_history/${id}` : '/api/service_history';
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showServiceMessage('Service saved!', true);
+                closeServiceModal();
+                fetchServices();
+            } else {
+                errorEl.textContent = resp.message || 'Error saving service.';
+                errorEl.style.display = 'block';
+            }
+        });
+    };
+    document.getElementById('service-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-service')) {
+            const id = e.target.closest('.edit-service').dataset.id;
+            fetch(`/api/service_history`)
+                .then(res => res.json())
+                .then(data => {
+                    const service = data.find(s => s.id == id);
+                    openServiceModal(true, service);
+                });
+        }
+        if (e.target.closest('.delete-service')) {
+            const id = e.target.closest('.delete-service').dataset.id;
+            if (confirm('Delete this service?')) {
+                fetch(`/api/service_history/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showServiceMessage('Service deleted!', true);
+                            fetchServices();
+                        } else {
+                            showServiceMessage('Error deleting service', false);
+                        }
+                    });
+            }
+        }
+    };
+    // Search/filter/sort events
+    document.getElementById('service-search').oninput = filterAndSortServices;
+    document.getElementById('filter-vehicle').onchange = filterAndSortServices;
+    document.getElementById('filter-company').onchange = filterAndSortServices;
+    document.getElementById('filter-year').onchange = filterAndSortServices;
+    document.querySelectorAll('.service-table th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.onclick = function() {
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            filterAndSortServices();
+        };
+    });
+});
+</script>
+{% endblock %} 

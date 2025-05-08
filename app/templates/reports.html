@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+
+{% block title %}Reports & Exports - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="reports-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2rem;">
+    <h1 style="margin:0;font-size:2rem;font-weight:700;">Reports & Exports</h1>
+    <div class="export-actions" style="display:flex;gap:1rem;">
+        <button class="action-btn" id="export-selected"><i class="fas fa-file-export"></i> Export Selected</button>
+        <button class="action-btn" id="print-selected"><i class="fas fa-print"></i> Print Selected</button>
+    </div>
+</div>
+<div class="section-selectors" style="margin-bottom:2rem;display:flex;gap:2rem;align-items:center;">
+    <label style="font-weight:500;"><input type="checkbox" class="section-toggle" value="invoices" checked style="margin-right:0.5rem;"> Invoices</label>
+    <label style="font-weight:500;"><input type="checkbox" class="section-toggle" value="vehicles" checked style="margin-right:0.5rem;"> Vehicles</label>
+    <!-- Add more toggles as needed -->
+</div>
+<div id="section-invoices" class="report-section" style="margin-bottom:2.5rem;">
+    <h2 style="font-size:1.5rem;font-weight:600;margin-bottom:1rem;">Invoices</h2>
+    <div style="margin-bottom:1.5rem;">
+        <h3 style="font-size:1.1rem;font-weight:500;margin-bottom:0.5rem;">Driver Invoices</h3>
+        <div class="table-responsive" style="background:white;border-radius:0.5rem;padding:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.07);">
+            <table class="main-table" id="driver-invoices-table" style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th>Invoice #</th><th>Date</th><th>Amount</th><th>Status</th><th>Driver ID</th><th>Name</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+    <div>
+        <h3 style="font-size:1.1rem;font-weight:500;margin-bottom:0.5rem;">Fleet Owner Invoices</h3>
+        <div class="table-responsive" style="background:white;border-radius:0.5rem;padding:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.07);">
+            <table class="main-table" id="fleet-invoices-table" style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th>Invoice #</th><th>Date</th><th>Amount</th><th>Status</th><th>Fleet Owner ID</th><th>Name</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<div id="section-vehicles" class="report-section" style="margin-bottom:2.5rem;">
+    <h2 style="font-size:1.5rem;font-weight:600;margin-bottom:1rem;">Vehicles</h2>
+    <div class="table-responsive" style="background:white;border-radius:0.5rem;padding:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.07);">
+        <table class="main-table" id="vehicles-table" style="width:100%;border-collapse:collapse;">
+            <thead>
+                <tr>
+                    <th>Name</th><th>Year</th><th>VIN</th><th>License Plate</th><th>Company</th><th>Notes</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+// Section toggling
+const sectionToggles = document.querySelectorAll('.section-toggle');
+const sectionInvoices = document.getElementById('section-invoices');
+const sectionVehicles = document.getElementById('section-vehicles');
+
+function updateSections() {
+    sectionInvoices.style.display = document.querySelector('.section-toggle[value="invoices"]').checked ? '' : 'none';
+    sectionVehicles.style.display = document.querySelector('.section-toggle[value="vehicles"]').checked ? '' : 'none';
+}
+sectionToggles.forEach(cb => cb.addEventListener('change', updateSections));
+updateSections();
+
+// Fetch and render Driver Invoices
+async function fetchDriverInvoices() {
+    const res = await axios.get('/api/driver_invoices');
+    const tbody = document.querySelector('#driver-invoices-table tbody');
+    tbody.innerHTML = '';
+    res.data.forEach(inv => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${inv.invoice_number}</td><td>${inv.date}</td><td>$${parseFloat(inv.amount).toFixed(2)}</td><td>${inv.status}</td><td>${inv.driver_id}</td><td>${inv.notes || ''}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+// Fetch and render Fleet Owner Invoices
+async function fetchFleetInvoices() {
+    const res = await axios.get('/api/fleet_invoices');
+    const tbody = document.querySelector('#fleet-invoices-table tbody');
+    tbody.innerHTML = '';
+    res.data.forEach(inv => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${inv.invoice_number}</td><td>${inv.date}</td><td>$${parseFloat(inv.amount).toFixed(2)}</td><td>${inv.status}</td><td>${inv.fleet_owner_id}</td><td>${inv.notes || ''}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+// Fetch and render Vehicles
+async function fetchVehicles() {
+    const res = await axios.get('/api/vehicles');
+    const tbody = document.querySelector('#vehicles-table tbody');
+    tbody.innerHTML = '';
+    res.data.forEach(v => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${v.name}</td><td>${v.year || ''}</td><td>${v.vin || ''}</td><td>${v.license_plate || ''}</td><td>${v.company || ''}</td><td>${v.notes || ''}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+fetchDriverInvoices();
+fetchFleetInvoices();
+fetchVehicles();
+
+// Export/Print selected sections
+function exportSelected() {
+    let csv = '';
+    if (sectionInvoices.style.display !== 'none') {
+        csv += 'Driver Invoices\n';
+        csv += 'Invoice #,Date,Amount,Status,Driver ID,Name\n';
+        document.querySelectorAll('#driver-invoices-table tbody tr').forEach(tr => {
+            csv += Array.from(tr.children).map(td => '"' + td.textContent + '"').join(',') + '\n';
+        });
+        csv += '\nFleet Owner Invoices\n';
+        csv += 'Invoice #,Date,Amount,Status,Fleet Owner ID,Name\n';
+        document.querySelectorAll('#fleet-invoices-table tbody tr').forEach(tr => {
+            csv += Array.from(tr.children).map(td => '"' + td.textContent + '"').join(',') + '\n';
+        });
+        csv += '\n';
+    }
+    if (sectionVehicles.style.display !== 'none') {
+        csv += 'Vehicles\n';
+        csv += 'Name,Year,VIN,License Plate,Company,Notes\n';
+        document.querySelectorAll('#vehicles-table tbody tr').forEach(tr => {
+            csv += Array.from(tr.children).map(td => '"' + td.textContent + '"').join(',') + '\n';
+        });
+    }
+    const blob = new Blob([csv], {type: 'text/csv'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'selected_report.csv';
+    link.click();
+}
+function printSelected() {
+    let html = '';
+    if (sectionInvoices.style.display !== 'none') {
+        html += '<h2>Driver Invoices</h2>' + document.getElementById('driver-invoices-table').outerHTML;
+        html += '<h2>Fleet Owner Invoices</h2>' + document.getElementById('fleet-invoices-table').outerHTML;
+    }
+    if (sectionVehicles.style.display !== 'none') {
+        html += '<h2>Vehicles</h2>' + document.getElementById('vehicles-table').outerHTML;
+    }
+    const win = window.open('', '', 'height=800,width=1200');
+    win.document.write('<html><head><title>Print Selected</title>');
+    win.document.write('<style>table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}h2{margin-top:2rem;}</style>');
+    win.document.write('</head><body>');
+    win.document.write(html);
+    win.document.write('</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+document.getElementById('export-selected').onclick = exportSelected;
+document.getElementById('print-selected').onclick = printSelected;
+</script>
+{% endblock %}

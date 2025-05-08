@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - LXM CRM</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary-color: #64748b;
+            --background-color: #18181b;
+            --surface-color: #23232a;
+            --surface-blur: rgba(35,35,42,0.85);
+            --error-color: #ef4444;
+            --success-color: #22c55e;
+            --text-color: #f3f4f6;
+        }
+        html, body {
+            height: 100%;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--background-color) url('/static/assets/laxmi_logo.png') no-repeat center center fixed;
+            background-size: cover;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(24,24,27,0.85);
+            z-index: 0;
+        }
+        .login-container {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: var(--surface-blur);
+            border-radius: 18px;
+            box-shadow: 0 10px 32px rgba(0,0,0,0.45);
+            padding: 48px 36px 36px 36px;
+            min-width: 350px;
+            max-width: 95vw;
+            width: 400px;
+            backdrop-filter: blur(6px);
+        }
+        .login-logo {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+        }
+        .login-title {
+            color: var(--text-color);
+            font-size: 2em;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        .login-desc {
+            color: #a1a1aa;
+            font-size: 1.05em;
+            margin-bottom: 28px;
+            text-align: center;
+        }
+        .login-form h2 {
+            color: var(--text-color);
+            margin-bottom: 24px;
+            font-size: 1.3em;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 22px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #d4d4d8;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #27272a;
+            background: #18181b;
+            color: var(--text-color);
+            border-radius: 8px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+        }
+        .submit-btn:hover {
+            background: var(--primary-dark);
+        }
+        .error-message {
+            display: none;
+            background: var(--error-color);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 18px;
+            font-size: 0.98em;
+            text-align: center;
+        }
+        @media (max-width: 600px) {
+            .login-container {
+                padding: 24px 8px 18px 8px;
+                min-width: unset;
+                width: 98vw;
+            }
+            .login-logo {
+                width: 80px;
+                height: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-logo">
+            <img src="/static/assets/laxmi_logo.png" alt="Laxmi Auto Logo">
+        </div>
+        <div class="login-title">LAXMI AUTO</div>
+        <div class="login-desc">Welcome to your comprehensive fleet management solution.<br>Sign in to manage vehicles, maintenance, and more.</div>
+        <form id="loginForm" class="login-form">
+            <h2>Sign In</h2>
+            <div id="error-message" class="error-message"></div>
+            <div class="form-group">
+                <label for="username"><i class="fas fa-user"></i> Username</label>
+                <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">
+            </div>
+            <div class="form-group">
+                <label for="password"><i class="fas fa-lock"></i> Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password">
+            </div>
+            <button type="submit" class="submit-btn"><i class="fas fa-sign-in-alt"></i> Sign In</button>
+        </form>
+    </div>
+    <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorMessage = document.getElementById('error-message');
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalBtnText = submitBtn.innerHTML;
+        try {
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+            submitBtn.disabled = true;
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: document.getElementById('username').value,
+                    password: document.getElementById('password').value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                errorMessage.style.display = 'none';
+                window.location.href = '/';
+            } else {
+                errorMessage.textContent = data.message || 'Invalid username or password';
+                errorMessage.style.display = 'block';
+                submitBtn.innerHTML = originalBtnText;
+                submitBtn.disabled = false;
+            }
+        } catch (error) {
+            errorMessage.textContent = 'An error occurred during login';
+            errorMessage.style.display = 'block';
+            submitBtn.innerHTML = originalBtnText;
+            submitBtn.disabled = false;
+        }
+    });
+    </script>
+</body>
+</html>

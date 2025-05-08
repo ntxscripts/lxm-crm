@@ -1,0 +1,359 @@
+{% extends 'base.html' %}
+
+{% block title %}Vehicles - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="vehicles-header">
+    <h1>Vehicles</h1>
+    <button class="add-entry-btn" id="add-vehicle-btn"><i class="fas fa-plus"></i> Add Vehicle</button>
+</div>
+<div class="vehicle-filters" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <input type="text" id="vehicle-search" placeholder="Search vehicles..." style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;min-width:200px;">
+    <select id="filter-company" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;">
+        <option value="">All Companies</option>
+    </select>
+    <select id="filter-year" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;">
+        <option value="">All Years</option>
+    </select>
+</div>
+<div class="vehicle-actions" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <button id="export-vehicles-csv" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;"><i class="fas fa-file-csv"></i> Export CSV</button>
+    <button id="print-vehicles-table" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#64748b;color:#fff;border:none;cursor:pointer;"><i class="fas fa-print"></i> Print</button>
+</div>
+<div id="vehicle-message" class="message" style="display:none;"></div>
+<div class="vehicles-table-wrapper">
+    <table class="vehicles-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="name">Name <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="year">Year <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vin">VIN <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="license_plate">License Plate <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="company">Company <span class="sort-indicator"></span></th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="vehicles-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+<!-- Modal for Add/Edit Vehicle -->
+<div id="vehicle-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-vehicle-modal">&times;</span>
+        <h2 id="vehicle-modal-title">Add Vehicle</h2>
+        <form id="vehicle-form">
+            <input type="hidden" id="vehicle-id">
+            <div class="form-group">
+                <label for="vehicle-name">Name</label>
+                <input type="text" id="vehicle-name" required>
+            </div>
+            <div class="form-group">
+                <label for="vehicle-year">Year</label>
+                <input type="text" id="vehicle-year">
+            </div>
+            <div class="form-group">
+                <label for="vehicle-vin">VIN</label>
+                <input type="text" id="vehicle-vin">
+            </div>
+            <div class="form-group">
+                <label for="vehicle-license-plate">License Plate</label>
+                <input type="text" id="vehicle-license-plate">
+            </div>
+            <div class="form-group">
+                <label for="vehicle-company">Company</label>
+                <input type="text" id="vehicle-company">
+            </div>
+            <div class="form-group">
+                <label for="vehicle-notes">Notes</label>
+                <textarea id="vehicle-notes"></textarea>
+            </div>
+            <div class="form-group">
+                <span id="vehicle-form-error" style="color:red;display:none;"></span>
+            </div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allVehicles = [];
+let currentSort = { key: 'name', dir: 'asc' };
+
+function showMessage(msg, success=true) {
+    const el = document.getElementById('vehicle-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+function openVehicleModal(edit=false, vehicle={}) {
+    document.getElementById('vehicle-modal-title').textContent = edit ? 'Edit Vehicle' : 'Add Vehicle';
+    document.getElementById('vehicle-id').value = vehicle.id || '';
+    document.getElementById('vehicle-name').value = vehicle.name || '';
+    document.getElementById('vehicle-year').value = vehicle.year || '';
+    document.getElementById('vehicle-vin').value = vehicle.vin || '';
+    document.getElementById('vehicle-license-plate').value = vehicle.license_plate || '';
+    document.getElementById('vehicle-company').value = vehicle.company || '';
+    document.getElementById('vehicle-notes').value = vehicle.notes || '';
+    document.getElementById('vehicle-modal').style.display = 'block';
+    document.getElementById('vehicle-form-error').style.display = 'none';
+}
+function closeVehicleModal() {
+    document.getElementById('vehicle-modal').style.display = 'none';
+}
+function renderVehicles(vehicles) {
+    const tbody = document.getElementById('vehicles-table-body');
+    tbody.innerHTML = '';
+    vehicles.forEach(vehicle => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${vehicle.name}</td>
+            <td>${vehicle.year || ''}</td>
+            <td>${vehicle.vin || ''}</td>
+            <td>${vehicle.license_plate || ''}</td>
+            <td>${vehicle.company || ''}</td>
+            <td>${vehicle.notes || ''}</td>
+            <td class="actions">
+                <a href="#" class="edit-vehicle" data-id="${vehicle.id}"><i class="fas fa-pen"></i></a>
+                <a href="#" class="delete-vehicle" data-id="${vehicle.id}"><i class="fas fa-trash"></i></a>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+function filterAndSortVehicles() {
+    let filtered = allVehicles;
+    const search = document.getElementById('vehicle-search').value.toLowerCase();
+    const company = document.getElementById('filter-company').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(v =>
+            v.name.toLowerCase().includes(search) ||
+            (v.vin || '').toLowerCase().includes(search) ||
+            (v.license_plate || '').toLowerCase().includes(search) ||
+            (v.company || '').toLowerCase().includes(search) ||
+            (v.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (company) {
+        filtered = filtered.filter(v => v.company === company);
+    }
+    if (year) {
+        filtered = filtered.filter(v => v.year === year);
+    }
+    // Sort
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    renderVehicles(filtered);
+    updateSortIndicators();
+}
+function updateSortIndicators() {
+    document.querySelectorAll('.vehicles-table th.sortable').forEach(th => {
+        const span = th.querySelector('.sort-indicator');
+        if (th.dataset.sort === currentSort.key) {
+            span.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        } else {
+            span.textContent = '';
+        }
+    });
+}
+function fetchVehicles() {
+    fetch('/api/vehicles')
+        .then(res => res.json())
+        .then(data => {
+            allVehicles = data;
+            // Populate company/year filters
+            const companies = Array.from(new Set(data.map(v => v.company).filter(Boolean)));
+            const years = Array.from(new Set(data.map(v => v.year).filter(Boolean)));
+            const companySelect = document.getElementById('filter-company');
+            const yearSelect = document.getElementById('filter-year');
+            companySelect.innerHTML = '<option value="">All Companies</option>' + companies.map(c => `<option value="${c}">${c}</option>`).join('');
+            yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+            filterAndSortVehicles();
+        });
+}
+function exportVehiclesToCSV() {
+    let rows = [
+        ["Name","Year","VIN","License Plate","Company","Notes"]
+    ];
+    // Use currently filtered/sorted data
+    let filtered = [];
+    // Reuse filterAndSortVehicles logic
+    let search = document.getElementById('vehicle-search').value.toLowerCase();
+    let company = document.getElementById('filter-company').value;
+    let year = document.getElementById('filter-year').value;
+    filtered = allVehicles;
+    if (search) {
+        filtered = filtered.filter(v =>
+            v.name.toLowerCase().includes(search) ||
+            (v.vin || '').toLowerCase().includes(search) ||
+            (v.license_plate || '').toLowerCase().includes(search) ||
+            (v.company || '').toLowerCase().includes(search) ||
+            (v.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (company) {
+        filtered = filtered.filter(v => v.company === company);
+    }
+    if (year) {
+        filtered = filtered.filter(v => v.year === year);
+    }
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    filtered.forEach(v => {
+        rows.push([
+            v.name,
+            v.year || '',
+            v.vin || '',
+            v.license_plate || '',
+            v.company || '',
+            v.notes || ''
+        ]);
+    });
+    let csvContent = rows.map(e => e.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+    let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    let link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'vehicles.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+function printVehiclesTable() {
+    let printContents = document.querySelector('.vehicles-table-wrapper').innerHTML;
+    let win = window.open('', '', 'height=700,width=900');
+    win.document.write('<html><head><title>Print Vehicles</title>');
+    win.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">');
+    win.document.write('<style>body{font-family:sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}th{background:#f3f4f6;}</style>');
+    win.document.write('</head><body>');
+    win.document.write('<h2>Vehicles</h2>');
+    win.document.write(printContents);
+    win.document.write('</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetchVehicles();
+    document.getElementById('add-vehicle-btn').onclick = () => openVehicleModal(false);
+    document.getElementById('close-vehicle-modal').onclick = closeVehicleModal;
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('vehicle-modal')) closeVehicleModal();
+    };
+    document.getElementById('vehicle-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('vehicle-id').value;
+        const name = document.getElementById('vehicle-name').value.trim();
+        const vin = document.getElementById('vehicle-vin').value.trim();
+        const company = document.getElementById('vehicle-company').value.trim();
+        const errorEl = document.getElementById('vehicle-form-error');
+        if (!name) {
+            errorEl.textContent = 'Vehicle name is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!vin) {
+            errorEl.textContent = 'VIN is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!company) {
+            errorEl.textContent = 'Company is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const data = {
+            name: name,
+            year: document.getElementById('vehicle-year').value,
+            vin: vin,
+            license_plate: document.getElementById('vehicle-license-plate').value,
+            company: company,
+            notes: document.getElementById('vehicle-notes').value
+        };
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/vehicles/${id}` : '/api/vehicles';
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showMessage('Vehicle saved!', true);
+                closeVehicleModal();
+                fetchVehicles();
+            } else {
+                errorEl.textContent = resp.message || 'Error saving vehicle.';
+                errorEl.style.display = 'block';
+            }
+        });
+    };
+    document.getElementById('vehicles-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-vehicle')) {
+            const id = e.target.closest('.edit-vehicle').dataset.id;
+            fetch(`/api/vehicles`)
+                .then(res => res.json())
+                .then(data => {
+                    const vehicle = data.find(v => v.id == id);
+                    openVehicleModal(true, vehicle);
+                });
+        }
+        if (e.target.closest('.delete-vehicle')) {
+            const id = e.target.closest('.delete-vehicle').dataset.id;
+            if (confirm('Delete this vehicle?')) {
+                fetch(`/api/vehicles/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showMessage('Vehicle deleted!', true);
+                            fetchVehicles();
+                        } else {
+                            showMessage('Error deleting vehicle', false);
+                        }
+                    });
+            }
+        }
+    };
+    // Search/filter/sort events
+    document.getElementById('vehicle-search').oninput = filterAndSortVehicles;
+    document.getElementById('filter-company').onchange = filterAndSortVehicles;
+    document.getElementById('filter-year').onchange = filterAndSortVehicles;
+    document.querySelectorAll('.vehicles-table th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.onclick = function() {
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            filterAndSortVehicles();
+        };
+    });
+    document.getElementById('export-vehicles-csv').onclick = exportVehiclesToCSV;
+    document.getElementById('print-vehicles-table').onclick = printVehiclesTable;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Settings - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h1>Admin Settings</h1>
+    <button class="add-entry-btn" id="add-user-btn"><i class="fas fa-user-plus"></i> Add User</button>
+</div>
+<div id="user-message" class="message" style="display:none;"></div>
+<div class="admin-table-wrapper">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Admin</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="admin-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Modal for Add/Edit User -->
+<div id="user-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-user-modal">&times;</span>
+        <h2 id="user-modal-title">Add User</h2>
+        <form id="user-form">
+            <input type="hidden" id="user-id">
+            <div class="form-group">
+                <label for="user-username">Username</label>
+                <input type="text" id="user-username" required>
+            </div>
+            <div class="form-group">
+                <label for="user-password">Password</label>
+                <input type="password" id="user-password">
+                <small class="text-muted">Leave blank to keep existing password when editing</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="user-is-admin"> Admin Access
+                </label>
+            </div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showUserMessage(msg, success=true) {
+    const el = document.getElementById('user-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+
+function openUserModal(edit=false, user={}) {
+    document.getElementById('user-modal-title').textContent = edit ? 'Edit User' : 'Add User';
+    document.getElementById('user-id').value = user.id || '';
+    document.getElementById('user-username').value = user.username || '';
+    document.getElementById('user-password').value = '';
+    document.getElementById('user-is-admin').checked = user.is_admin || false;
+    document.getElementById('user-modal').style.display = 'block';
+}
+
+function closeUserModal() {
+    document.getElementById('user-modal').style.display = 'none';
+}
+
+function fetchUsers() {
+    fetch('/api/users')
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('admin-table-body');
+            tbody.innerHTML = '';
+            data.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.username || ''}</td>
+                    <td>${user.is_admin ? 'Yes' : 'No'}</td>
+                    <td class="actions">
+                        <a href="#" class="edit-user" data-id="${user.id}"><i class="fas fa-pen"></i></a>
+                        <a href="#" class="delete-user" data-id="${user.id}"><i class="fas fa-trash"></i></a>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    fetchUsers();
+    
+    document.getElementById('add-user-btn').onclick = () => openUserModal(false);
+    document.getElementById('close-user-modal').onclick = closeUserModal;
+    
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('user-modal')) {
+            closeUserModal();
+        }
+    };
+
+    document.getElementById('user-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('user-id').value;
+        const data = {
+            username: document.getElementById('user-username').value,
+            password: document.getElementById('user-password').value,
+            is_admin: document.getElementById('user-is-admin').checked
+        };
+
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/users/${id}` : '/api/users';
+
+        // Don't send password if it's empty on edit
+        if (id && !data.password) {
+            delete data.password;
+        }
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showUserMessage(id ? 'User updated!' : 'User created!', true);
+                closeUserModal();
+                fetchUsers();
+            } else {
+                showUserMessage('Error saving user', false);
+            }
+        });
+    };
+
+    document.getElementById('admin-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-user')) {
+            const id = e.target.closest('.edit-user').dataset.id;
+            fetch('/api/users')
+                .then(res => res.json())
+                .then(data => {
+                    const user = data.find(u => u.id == id);
+                    openUserModal(true, user);
+                });
+        }
+        if (e.target.closest('.delete-user')) {
+            const id = e.target.closest('.delete-user').dataset.id;
+            if (confirm('Delete this user?')) {
+                fetch(`/api/users/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showUserMessage('User deleted!', true);
+                            fetchUsers();
+                        } else {
+                            showUserMessage('Error deleting user', false);
+                        }
+                    });
+            }
+        }
+    };
+});
+</script>
+{% endblock %} 

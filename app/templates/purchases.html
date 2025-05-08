@@ -1,0 +1,377 @@
+{% extends 'base.html' %}
+
+{% block title %}Purchases - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="purchases-header">
+    <h1>Purchases</h1>
+    <button class="add-entry-btn" id="add-purchase-btn"><i class="fas fa-plus"></i> Add Purchase</button>
+</div>
+<div class="purchases-filters" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <input type="text" id="purchase-search" placeholder="Search purchases..." style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;min-width:200px;">
+    <select id="filter-vehicle" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-company" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-type" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-year" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+</div>
+<div class="purchases-actions" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <button id="export-purchases-csv" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;"><i class="fas fa-file-csv"></i> Export CSV</button>
+    <button id="print-purchases-table" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#64748b;color:#fff;border:none;cursor:pointer;"><i class="fas fa-print"></i> Print</button>
+</div>
+<div id="purchase-message" class="message" style="display:none;"></div>
+<div class="purchases-table-wrapper">
+    <table class="purchases-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="date">Date <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_name">Vehicle <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_company">Company <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="vehicle_license_plate">License Plate <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="type">Type <span class="sort-indicator"></span></th>
+                <th>Description</th>
+                <th class="sortable" data-sort="cost">Cost <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="total">Total <span class="sort-indicator"></span></th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="purchases-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+<!-- Modal for Add/Edit Purchase -->
+<div id="purchase-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-purchase-modal">&times;</span>
+        <h2 id="purchase-modal-title">Add Purchase</h2>
+        <form id="purchase-form">
+            <input type="hidden" id="purchase-id">
+            <div class="form-group">
+                <label for="purchase-vehicle">Vehicle</label>
+                <select id="purchase-vehicle" required></select>
+            </div>
+            <div class="form-group">
+                <label for="purchase-date">Date</label>
+                <input type="date" id="purchase-date" required>
+            </div>
+            <div class="form-group">
+                <label for="purchase-description">Description</label>
+                <input type="text" id="purchase-description">
+            </div>
+            <div class="form-group">
+                <label for="purchase-cost">Cost</label>
+                <input type="text" id="purchase-cost">
+            </div>
+            <div class="form-group">
+                <label for="purchase-notes">Notes</label>
+                <textarea id="purchase-notes"></textarea>
+            </div>
+            <div id="purchase-form-error" class="error" style="display:none;"></div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allPurchases = [];
+let currentSort = { key: 'date', dir: 'desc' };
+
+function showPurchaseMessage(msg, success=true) {
+    const el = document.getElementById('purchase-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+function openPurchaseModal(edit=false, purchase={}) {
+    document.getElementById('purchase-modal-title').textContent = edit ? 'Edit Purchase' : 'Add Purchase';
+    document.getElementById('purchase-id').value = purchase.id || '';
+    document.getElementById('purchase-date').value = purchase.date || '';
+    document.getElementById('purchase-description').value = purchase.description || '';
+    document.getElementById('purchase-cost').value = purchase.cost || '';
+    document.getElementById('purchase-notes').value = purchase.notes || '';
+    document.getElementById('purchase-modal').style.display = 'block';
+    document.getElementById('purchase-form-error').style.display = 'none';
+    // Populate vehicle dropdown
+    fetch('/api/vehicles').then(res => res.json()).then(vehicles => {
+        const select = document.getElementById('purchase-vehicle');
+        select.innerHTML = '';
+        vehicles.forEach(v => {
+            const option = document.createElement('option');
+            option.value = v.id;
+            option.textContent = v.name;
+            if (purchase.vehicle_id == v.id) option.selected = true;
+            select.appendChild(option);
+        });
+        if (!edit && vehicles.length) select.value = vehicles[0].id;
+    });
+}
+function closePurchaseModal() {
+    document.getElementById('purchase-modal').style.display = 'none';
+}
+function renderPurchases(purchases) {
+    const tbody = document.getElementById('purchases-table-body');
+    tbody.innerHTML = '';
+    purchases.forEach(purchase => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${purchase.date || ''}</td>
+            <td>${purchase.vehicle_name || ''}</td>
+            <td>${purchase.vehicle_company || ''}</td>
+            <td>${purchase.vehicle_license_plate || ''}</td>
+            <td><span class="badge badge-${purchase.type ? purchase.type.toLowerCase() : ''}">${purchase.type || ''}</span></td>
+            <td>${purchase.description || ''}</td>
+            <td>${purchase.cost || ''}</td>
+            <td>${purchase.total || ''}</td>
+            <td>${purchase.notes || ''}</td>
+            <td class="actions">
+                <a href="#" class="edit-purchase" data-id="${purchase.id}"><i class="fas fa-pen"></i></a>
+                <a href="#" class="delete-purchase" data-id="${purchase.id}"><i class="fas fa-trash"></i></a>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+function filterAndSortPurchases() {
+    let filtered = allPurchases;
+    const search = document.getElementById('purchase-search').value.toLowerCase();
+    const vehicle = document.getElementById('filter-vehicle').value;
+    const company = document.getElementById('filter-company').value;
+    const type = document.getElementById('filter-type').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.date || '').toLowerCase().includes(search) ||
+            (p.vehicle_name || '').toLowerCase().includes(search) ||
+            (p.vehicle_company || '').toLowerCase().includes(search) ||
+            (p.vehicle_license_plate || '').toLowerCase().includes(search) ||
+            (p.type || '').toLowerCase().includes(search) ||
+            (p.description || '').toLowerCase().includes(search) ||
+            (p.cost || '').toLowerCase().includes(search) ||
+            (p.total || '').toLowerCase().includes(search) ||
+            (p.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (vehicle) filtered = filtered.filter(p => String(p.vehicle_id) === vehicle);
+    if (company) filtered = filtered.filter(p => p.vehicle_company === company);
+    if (type) filtered = filtered.filter(p => p.type === type);
+    if (year) filtered = filtered.filter(p => (p.date || '').startsWith(year));
+    // Sort
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    renderPurchases(filtered);
+    updateSortIndicators();
+}
+function updateSortIndicators() {
+    document.querySelectorAll('.purchases-table th.sortable').forEach(th => {
+        const span = th.querySelector('.sort-indicator');
+        if (th.dataset.sort === currentSort.key) {
+            span.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        } else {
+            span.textContent = '';
+        }
+    });
+}
+function fetchPurchases() {
+    fetch('/api/purchases')
+        .then(res => res.json())
+        .then(data => {
+            allPurchases = data;
+            // Populate filters
+            fetch('/api/vehicles').then(res => res.json()).then(vehiclesData => {
+                const companies = Array.from(new Set(vehiclesData.map(v => v.company).filter(Boolean)));
+                const vehicles = Array.from(new Set(data.map(p => ({ id: p.vehicle_id, name: p.vehicle_name })).filter(v => v.id && v.name)));
+                const types = Array.from(new Set(data.map(p => p.type).filter(Boolean)));
+                const years = Array.from(new Set(data.map(p => (p.date || '').slice(0,4)).filter(Boolean)));
+                const vehicleSelect = document.getElementById('filter-vehicle');
+                const companySelect = document.getElementById('filter-company');
+                const typeSelect = document.getElementById('filter-type');
+                const yearSelect = document.getElementById('filter-year');
+                vehicleSelect.innerHTML = '<option value="">All Vehicles</option>' + vehicles.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+                companySelect.innerHTML = '<option value="">All Companies</option>' + companies.map(c => `<option value="${c}">${c}</option>`).join('');
+                typeSelect.innerHTML = '<option value="">All Types</option>' + types.map(t => `<option value="${t}">${t}</option>`).join('');
+                yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+                filterAndSortPurchases();
+            });
+        });
+}
+function exportPurchasesToCSV() {
+    let rows = [["Date","Vehicle","Company","License Plate","Type","Description","Cost","Total","Notes"]];
+    let filtered = allPurchases;
+    const search = document.getElementById('purchase-search').value.toLowerCase();
+    const vehicle = document.getElementById('filter-vehicle').value;
+    const company = document.getElementById('filter-company').value;
+    const type = document.getElementById('filter-type').value;
+    const year = document.getElementById('filter-year').value;
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.date || '').toLowerCase().includes(search) ||
+            (p.vehicle_name || '').toLowerCase().includes(search) ||
+            (p.vehicle_company || '').toLowerCase().includes(search) ||
+            (p.vehicle_license_plate || '').toLowerCase().includes(search) ||
+            (p.type || '').toLowerCase().includes(search) ||
+            (p.description || '').toLowerCase().includes(search) ||
+            (p.cost || '').toLowerCase().includes(search) ||
+            (p.total || '').toLowerCase().includes(search) ||
+            (p.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (vehicle) filtered = filtered.filter(p => String(p.vehicle_id) === vehicle);
+    if (company) filtered = filtered.filter(p => p.vehicle_company === company);
+    if (type) filtered = filtered.filter(p => p.type === type);
+    if (year) filtered = filtered.filter(p => (p.date || '').startsWith(year));
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    filtered.forEach(p => {
+        rows.push([
+            p.date || '',
+            p.vehicle_name || '',
+            p.vehicle_company || '',
+            p.vehicle_license_plate || '',
+            p.type || '',
+            p.description || '',
+            p.cost || '',
+            p.total || '',
+            p.notes || ''
+        ]);
+    });
+    let csvContent = rows.map(e => e.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+    let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    let link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'purchases.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+function printPurchasesTable() {
+    let printContents = document.querySelector('.purchases-table-wrapper').innerHTML;
+    let win = window.open('', '', 'height=700,width=900');
+    win.document.write('<html><head><title>Print Purchases</title>');
+    win.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">');
+    win.document.write('<style>body{font-family:sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}th{background:#f3f4f6;}</style>');
+    win.document.write('</head><body>');
+    win.document.write('<h2>Purchases</h2>');
+    win.document.write(printContents);
+    win.document.write('</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetchPurchases();
+    document.getElementById('add-purchase-btn').onclick = () => openPurchaseModal(false);
+    document.getElementById('close-purchase-modal').onclick = closePurchaseModal;
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('purchase-modal')) closePurchaseModal();
+    };
+    document.getElementById('purchase-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('purchase-id').value;
+        const date = document.getElementById('purchase-date').value;
+        const vehicle_id = document.getElementById('purchase-vehicle').value;
+        const errorEl = document.getElementById('purchase-form-error');
+        if (!date) {
+            errorEl.textContent = 'Date is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (!vehicle_id) {
+            errorEl.textContent = 'Vehicle is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const data = {
+            vehicle_id: vehicle_id,
+            date: date,
+            description: document.getElementById('purchase-description').value,
+            cost: document.getElementById('purchase-cost').value,
+            notes: document.getElementById('purchase-notes').value
+        };
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/purchases/${id}` : '/api/purchases';
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showPurchaseMessage('Purchase saved!', true);
+                closePurchaseModal();
+                fetchPurchases();
+            } else {
+                errorEl.textContent = resp.message || 'Error saving purchase.';
+                errorEl.style.display = 'block';
+            }
+        });
+    };
+    document.getElementById('purchases-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-purchase')) {
+            const id = e.target.closest('.edit-purchase').dataset.id;
+            fetch(`/api/purchases`)
+                .then(res => res.json())
+                .then(data => {
+                    const purchase = data.find(p => p.id == id);
+                    openPurchaseModal(true, purchase);
+                });
+        }
+        if (e.target.closest('.delete-purchase')) {
+            const id = e.target.closest('.delete-purchase').dataset.id;
+            if (confirm('Delete this purchase?')) {
+                fetch(`/api/purchases/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showPurchaseMessage('Purchase deleted!', true);
+                            fetchPurchases();
+                        } else {
+                            showPurchaseMessage('Error deleting purchase', false);
+                        }
+                    });
+            }
+        }
+    };
+    // Search/filter/sort events
+    document.getElementById('purchase-search').oninput = filterAndSortPurchases;
+    document.getElementById('filter-vehicle').onchange = filterAndSortPurchases;
+    document.getElementById('filter-company').onchange = filterAndSortPurchases;
+    document.getElementById('filter-type').onchange = filterAndSortPurchases;
+    document.getElementById('filter-year').onchange = filterAndSortPurchases;
+    document.querySelectorAll('.purchases-table th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.onclick = function() {
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            filterAndSortPurchases();
+        };
+    });
+    document.getElementById('export-purchases-csv').onclick = exportPurchasesToCSV;
+    document.getElementById('print-purchases-table').onclick = printPurchasesTable;
+});
+</script>
+{% endblock %} 

@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}Parts Inventory - LXM CRM{% endblock %}
+
+{% block content %}
+<div class="parts-header">
+    <h1>Parts Inventory</h1>
+    <button class="add-entry-btn" id="add-part-btn"><i class="fas fa-plus"></i> Add Part</button>
+</div>
+<div class="parts-filters" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <input type="text" id="part-search" placeholder="Search parts..." style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;min-width:200px;">
+    <select id="filter-name" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-stock" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+    <select id="filter-cost" style="padding:8px 12px;border-radius:6px;border:1.5px solid #d1d5db;"></select>
+</div>
+<div class="parts-actions" style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;">
+    <button id="export-parts-csv" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;"><i class="fas fa-file-csv"></i> Export CSV</button>
+    <button id="print-parts-table" class="action-btn" style="padding:8px 16px;border-radius:6px;background:#64748b;color:#fff;border:none;cursor:pointer;"><i class="fas fa-print"></i> Print</button>
+</div>
+<div id="part-message" class="message" style="display:none;"></div>
+<div class="parts-table-wrapper">
+    <table class="parts-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="name">Name <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="stock">Stock <span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort="cost">Cost <span class="sort-indicator"></span></th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="parts-table-body">
+            <!-- Dynamic rows will be inserted here by JS -->
+        </tbody>
+    </table>
+</div>
+<!-- Modal for Add/Edit Part -->
+<div id="part-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" id="close-part-modal">&times;</span>
+        <h2 id="part-modal-title">Add Part</h2>
+        <form id="part-form">
+            <input type="hidden" id="part-id">
+            <div class="form-group">
+                <label for="part-name">Name</label>
+                <input type="text" id="part-name" required>
+            </div>
+            <div class="form-group">
+                <label for="part-stock">Stock</label>
+                <input type="number" id="part-stock" min="0" required>
+            </div>
+            <div class="form-group">
+                <label for="part-cost">Cost</label>
+                <input type="text" id="part-cost">
+            </div>
+            <div class="form-group">
+                <label for="part-notes">Notes</label>
+                <textarea id="part-notes"></textarea>
+            </div>
+            <div id="part-form-error" class="error" style="display:none;"></div>
+            <button type="submit" class="modal-submit-btn">Save</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allParts = [];
+let currentSort = { key: 'name', dir: 'asc' };
+
+function showPartMessage(msg, success=true) {
+    const el = document.getElementById('part-message');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.background = success ? '#22c55e' : '#ef4444';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+function openPartModal(edit=false, part={}) {
+    document.getElementById('part-modal-title').textContent = edit ? 'Edit Part' : 'Add Part';
+    document.getElementById('part-id').value = part.id || '';
+    document.getElementById('part-name').value = part.name || '';
+    document.getElementById('part-stock').value = part.stock || 0;
+    document.getElementById('part-cost').value = part.cost || '';
+    document.getElementById('part-notes').value = part.notes || '';
+    document.getElementById('part-modal').style.display = 'block';
+    document.getElementById('part-form-error').style.display = 'none';
+}
+function closePartModal() {
+    document.getElementById('part-modal').style.display = 'none';
+}
+function renderParts(parts) {
+    const tbody = document.getElementById('parts-table-body');
+    tbody.innerHTML = '';
+    parts.forEach(part => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${part.name || ''}</td>
+            <td>${part.stock || 0}</td>
+            <td>${part.cost || ''}</td>
+            <td>${part.notes || ''}</td>
+            <td class="actions">
+                <a href="#" class="edit-part" data-id="${part.id}"><i class="fas fa-pen"></i></a>
+                <a href="#" class="delete-part" data-id="${part.id}"><i class="fas fa-trash"></i></a>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+function filterAndSortParts() {
+    let filtered = allParts;
+    const search = document.getElementById('part-search').value.toLowerCase();
+    const name = document.getElementById('filter-name').value;
+    const stock = document.getElementById('filter-stock').value;
+    const cost = document.getElementById('filter-cost').value;
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.name || '').toLowerCase().includes(search) ||
+            String(p.stock).toLowerCase().includes(search) ||
+            (p.cost || '').toLowerCase().includes(search) ||
+            (p.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (name) filtered = filtered.filter(p => p.name === name);
+    if (stock) filtered = filtered.filter(p => String(p.stock) === stock);
+    if (cost) filtered = filtered.filter(p => p.cost === cost);
+    // Sort
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    renderParts(filtered);
+    updateSortIndicators();
+}
+function updateSortIndicators() {
+    document.querySelectorAll('.parts-table th.sortable').forEach(th => {
+        const span = th.querySelector('.sort-indicator');
+        if (th.dataset.sort === currentSort.key) {
+            span.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        } else {
+            span.textContent = '';
+        }
+    });
+}
+function fetchParts() {
+    fetch('/api/parts')
+        .then(res => res.json())
+        .then(data => {
+            allParts = data;
+            // Populate filters
+            const names = Array.from(new Set(data.map(p => p.name).filter(Boolean)));
+            const stocks = Array.from(new Set(data.map(p => String(p.stock)).filter(Boolean)));
+            const costs = Array.from(new Set(data.map(p => p.cost).filter(Boolean)));
+            const nameSelect = document.getElementById('filter-name');
+            const stockSelect = document.getElementById('filter-stock');
+            const costSelect = document.getElementById('filter-cost');
+            nameSelect.innerHTML = '<option value="">All Names</option>' + names.map(n => `<option value="${n}">${n}</option>`).join('');
+            stockSelect.innerHTML = '<option value="">All Stock</option>' + stocks.map(s => `<option value="${s}">${s}</option>`).join('');
+            costSelect.innerHTML = '<option value="">All Costs</option>' + costs.map(c => `<option value="${c}">${c}</option>`).join('');
+            filterAndSortParts();
+        });
+}
+function exportPartsToCSV() {
+    let rows = [["Name","Stock","Cost","Notes"]];
+    let filtered = allParts;
+    const search = document.getElementById('part-search').value.toLowerCase();
+    const name = document.getElementById('filter-name').value;
+    const stock = document.getElementById('filter-stock').value;
+    const cost = document.getElementById('filter-cost').value;
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.name || '').toLowerCase().includes(search) ||
+            String(p.stock).toLowerCase().includes(search) ||
+            (p.cost || '').toLowerCase().includes(search) ||
+            (p.notes || '').toLowerCase().includes(search)
+        );
+    }
+    if (name) filtered = filtered.filter(p => p.name === name);
+    if (stock) filtered = filtered.filter(p => String(p.stock) === stock);
+    if (cost) filtered = filtered.filter(p => p.cost === cost);
+    filtered = filtered.sort((a, b) => {
+        let valA = a[currentSort.key] || '';
+        let valB = b[currentSort.key] || '';
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        if (valA < valB) return currentSort.dir === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    filtered.forEach(p => {
+        rows.push([
+            p.name || '',
+            p.stock || 0,
+            p.cost || '',
+            p.notes || ''
+        ]);
+    });
+    let csvContent = rows.map(e => e.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+    let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    let link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'parts.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+function printPartsTable() {
+    let printContents = document.querySelector('.parts-table-wrapper').innerHTML;
+    let win = window.open('', '', 'height=700,width=900');
+    win.document.write('<html><head><title>Print Parts</title>');
+    win.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">');
+    win.document.write('<style>body{font-family:sans-serif;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}th{background:#f3f4f6;}</style>');
+    win.document.write('</head><body>');
+    win.document.write('<h2>Parts Inventory</h2>');
+    win.document.write(printContents);
+    win.document.write('</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+document.addEventListener('DOMContentLoaded', function() {
+    fetchParts();
+    document.getElementById('add-part-btn').onclick = () => openPartModal(false);
+    document.getElementById('close-part-modal').onclick = closePartModal;
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('part-modal')) closePartModal();
+    };
+    document.getElementById('part-form').onsubmit = function(e) {
+        e.preventDefault();
+        const id = document.getElementById('part-id').value;
+        const name = document.getElementById('part-name').value.trim();
+        const stock = document.getElementById('part-stock').value;
+        const errorEl = document.getElementById('part-form-error');
+        if (!name) {
+            errorEl.textContent = 'Part name is required.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        if (stock === '' || isNaN(stock) || Number(stock) < 0) {
+            errorEl.textContent = 'Stock must be a non-negative number.';
+            errorEl.style.display = 'block';
+            return;
+        }
+        errorEl.style.display = 'none';
+        const data = {
+            name: name,
+            stock: stock,
+            cost: document.getElementById('part-cost').value,
+            notes: document.getElementById('part-notes').value
+        };
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/parts/${id}` : '/api/parts';
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resp => {
+            if (resp.success) {
+                showPartMessage('Part saved!', true);
+                closePartModal();
+                fetchParts();
+            } else {
+                errorEl.textContent = resp.message || 'Error saving part.';
+                errorEl.style.display = 'block';
+            }
+        });
+    };
+    document.getElementById('parts-table-body').onclick = function(e) {
+        if (e.target.closest('.edit-part')) {
+            const id = e.target.closest('.edit-part').dataset.id;
+            fetch(`/api/parts`)
+                .then(res => res.json())
+                .then(data => {
+                    const part = data.find(p => p.id == id);
+                    openPartModal(true, part);
+                });
+        }
+        if (e.target.closest('.delete-part')) {
+            const id = e.target.closest('.delete-part').dataset.id;
+            if (confirm('Delete this part?')) {
+                fetch(`/api/parts/${id}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(resp => {
+                        if (resp.success) {
+                            showPartMessage('Part deleted!', true);
+                            fetchParts();
+                        } else {
+                            showPartMessage('Error deleting part', false);
+                        }
+                    });
+            }
+        }
+    };
+    // Search/filter/sort events
+    document.getElementById('part-search').oninput = filterAndSortParts;
+    document.getElementById('filter-name').onchange = filterAndSortParts;
+    document.getElementById('filter-stock').onchange = filterAndSortParts;
+    document.getElementById('filter-cost').onchange = filterAndSortParts;
+    document.querySelectorAll('.parts-table th.sortable').forEach(th => {
+        th.style.cursor = 'pointer';
+        th.onclick = function() {
+            const key = th.dataset.sort;
+            if (currentSort.key === key) {
+                currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = key;
+                currentSort.dir = 'asc';
+            }
+            filterAndSortParts();
+        };
+    });
+    document.getElementById('export-parts-csv').onclick = exportPartsToCSV;
+    document.getElementById('print-parts-table').onclick = printPartsTable;
+});
+</script>
+{% endblock %} 
